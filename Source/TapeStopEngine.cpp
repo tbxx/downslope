@@ -12,7 +12,17 @@ void TapeStopEngine::prepare (double sampleRate, int /*maxBlockSize*/, int numCh
     ringSize = static_cast<int> (std::ceil (sampleRate * 10.0));
     ring.assign (static_cast<size_t> (nCh),
                  std::vector<float> (static_cast<size_t> (ringSize), 0.0f));
-    lpZ.assign (static_cast<size_t> (nCh), 0.0f);
+    lpZ.assign  (static_cast<size_t> (nCh), 0.0f);
+    dcX1.assign (static_cast<size_t> (nCh), 0.0f);
+    dcY1.assign (static_cast<size_t> (nCh), 0.0f);
+
+    // DC blocker pole: fc ~ 5 Hz
+    dcR = 1.0f - static_cast<float> (2.0 * 3.14159265358979 * 5.0 / sampleRate);
+
+    mixSm.prepare   (sampleRate, 20.0f);
+    floorSm.prepare (sampleRate, 20.0f);
+    mixSm.snap   (mix);
+    floorSm.snap (floorPitch);
 
     reset();
 }
@@ -27,7 +37,9 @@ void TapeStopEngine::reset()
     prevTrigger   = false;
     triggerHigh   = false;
     for (auto& ch : ring) std::fill (ch.begin(), ch.end(), 0.0f);
-    std::fill (lpZ.begin(), lpZ.end(), 0.0f);
+    std::fill (lpZ.begin(),  lpZ.end(),  0.0f);
+    std::fill (dcX1.begin(), dcX1.end(), 0.0f);
+    std::fill (dcY1.begin(), dcY1.end(), 0.0f);
 }
 
 float TapeStopEngine::applyCurve (float x, Curve c) const
@@ -110,6 +122,10 @@ void TapeStopEngine::processBlock (const float* const* inputs,
 
     for (int n = 0; n < numSamples; ++n)
     {
+        // Smoothed user params (zipper-noise-free during automation)
+        const float floorNow = floorSm.next (floorPitch);
+        const float mixNow   = mixSm.next   (mix);
+
         // Always feed the ring with the live input
         for (int ch = 0; ch < channels; ++ch)
             ring[static_cast<size_t> (ch)][static_cast<size_t> (writeIdx)] = inputs[ch][n];
@@ -144,13 +160,13 @@ void TapeStopEngine::processBlock (const float* const* inputs,
                     }
                 }
                 const float shaped = applyCurve (p, stopCurve);
-                rate = 1.0f - shaped * (1.0f - floorPitch);
+                rate = 1.0f - shaped * (1.0f - floorNow);
                 phase += 1.0;
                 break;
             }
 
             case State::Holding:
-                rate = floorPitch;
+                rate = floorNow;
                 break;
 
             case State::Returning:
@@ -164,7 +180,7 @@ void TapeStopEngine::processBlock (const float* const* inputs,
                     settleCounter = 0.0;
                 }
                 const float shaped = applyCurve (p, returnCurve);
-                rate = floorPitch + shaped * (1.0f - floorPitch);
+                rate = floorNow + shaped * (1.0f - floorNow);
                 phase += 1.0;
                 break;
             }
@@ -206,11 +222,24 @@ void TapeStopEngine::processBlock (const float* const* inputs,
 
             if (state == State::Settling)
             {
-                const float t  = std::min (1.0f, static_cast<float> (settleCounter / settleSamples));
+                const float t = std::min (1.0f, static_cast<float> (settleCounter / settleSamples));
                 wet = wet * (1.0f - t) + dry * t;
             }
 
-            outputs[ch][n] = dry * (1.0f - mix) + wet * mix;
+            // DC blocker on the wet path (cheap insurance against held DC)
+            {
+                float& x1 = dcX1[static_cast<size_t> (ch)];
+                float& y1 = dcY1[static_cast<size_t> (ch)];
+                const float y = wet - x1 + dcR * y1;
+                x1 = wet;
+                y1 = y;
+                wet = y;
+            }
+
+            float out = dry * (1.0f - mixNow) + wet * mixNow;
+            // Final NaN/inf safety
+            if (! std::isfinite (out)) out = 0.0f;
+            outputs[ch][n] = out;
         }
 
         if (state == State::Settling)

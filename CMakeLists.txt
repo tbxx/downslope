@@ -37,6 +37,8 @@ target_sources(Downslope PRIVATE
     Source/TapeStopEngine.cpp
 )
 
+target_include_directories(Downslope PRIVATE Source)
+
 target_compile_definitions(Downslope PUBLIC
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
@@ -45,6 +47,44 @@ target_compile_definitions(Downslope PUBLIC
 )
 
 target_link_libraries(Downslope PRIVATE
+    juce::juce_audio_utils
+    juce::juce_dsp
+    PUBLIC
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_lto_flags
+    juce::juce_recommended_warning_flags
+)
+
+# -----------------------------------------------------------------------------
+# Host application — minimal JUCE GUI app that loads/loops an audio file and
+# runs it through Downslope using the system default audio output.
+# -----------------------------------------------------------------------------
+
+juce_add_gui_app(DownslopeHost
+    PRODUCT_NAME "Downslope Host"
+    COMPANY_NAME "Tom"
+    BUNDLE_ID com.tom.downslopehost
+)
+
+juce_generate_juce_header(DownslopeHost)
+
+target_sources(DownslopeHost PRIVATE
+    Source/TapeStopEngine.cpp
+    Source/PluginProcessor.cpp
+    Source/PluginEditor.cpp
+    HostApp/Main.cpp
+    HostApp/MainComponent.cpp
+)
+
+target_include_directories(DownslopeHost PRIVATE Source HostApp)
+
+target_compile_definitions(DownslopeHost PUBLIC
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_DISPLAY_SPLASH_SCREEN=0
+)
+
+target_link_libraries(DownslopeHost PRIVATE
     juce::juce_audio_utils
     juce::juce_dsp
     PUBLIC

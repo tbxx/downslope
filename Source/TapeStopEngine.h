@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <cstddef>
+#include <cmath>
 
 class TapeStopEngine
 {
@@ -51,6 +52,21 @@ private:
     double settleCounter = 0.0;
 
     std::vector<float> lpZ;
+
+    // DC blocker state (per channel)
+    std::vector<float> dcX1, dcY1;
+    float dcR = 0.999f;
+
+    // One-pole smoothers for zipper-noise-free user params
+    struct Smoother { float cur = 0.0f, coeff = 1.0f;
+        void prepare (double sr, float ms) {
+            const double tau = static_cast<double> (ms) * 0.001;
+            coeff = static_cast<float> (1.0 - std::exp (-1.0 / (tau * sr)));
+        }
+        void snap (float v) { cur = v; }
+        float next (float t) { cur += coeff * (t - cur); return cur; }
+    };
+    Smoother mixSm, floorSm;
 
     float stopTimeSec   = 1.0f;
     float returnTimeSec = 0.25f;
