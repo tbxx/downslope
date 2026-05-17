@@ -51,7 +51,7 @@ void TapeStopEngine::reset()
     std::fill (dcY1.begin(), dcY1.end(), 0.0f);
 }
 
-float TapeStopEngine::applyCurve (float x, Curve c) const
+float TapeStopEngine::applyCurve (float x, Curve c)
 {
     x = std::clamp (x, 0.0f, 1.0f);
     switch (c)

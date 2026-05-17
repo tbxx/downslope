@@ -96,3 +96,41 @@ target_link_libraries(DownslopeHost PRIVATE
     juce::juce_recommended_lto_flags
     juce::juce_recommended_warning_flags
 )
+
+# -----------------------------------------------------------------------------
+# Tests — Catch2-based DSP unit tests and render characterization tests.
+# Build with `cmake --build build --target DownslopeTests`; run with `ctest`.
+# -----------------------------------------------------------------------------
+
+option(DOWNSLOPE_BUILD_TESTS "Build Downslope unit tests" ON)
+
+if(DOWNSLOPE_BUILD_TESTS)
+    FetchContent_Declare(
+        Catch2
+        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+        GIT_TAG v3.5.4
+        GIT_SHALLOW TRUE
+    )
+    FetchContent_MakeAvailable(Catch2)
+
+    add_executable(DownslopeTests
+        tests/test_TapeStopEngine.cpp
+        tests/test_render.cpp
+        Source/TapeStopEngine.cpp
+    )
+    target_include_directories(DownslopeTests PRIVATE Source)
+    target_link_libraries(DownslopeTests PRIVATE Catch2::Catch2WithMain)
+
+    # macOS Sequoia kills unsigned local binaries with SIGKILL — ad-hoc sign
+    # so the test runner (and catch_discover_tests' enumeration call) can run.
+    if(APPLE)
+        add_custom_command(TARGET DownslopeTests POST_BUILD
+            COMMAND codesign --force --sign - $<TARGET_FILE:DownslopeTests>
+            VERBATIM)
+    endif()
+
+    enable_testing()
+    list(APPEND CMAKE_MODULE_PATH "${Catch2_SOURCE_DIR}/extras")
+    include(Catch)
+    catch_discover_tests(DownslopeTests)
+endif()

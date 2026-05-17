@@ -45,9 +45,13 @@ HostApp/
   Main.cpp                  juce::JUCEApplication boilerplate
   MainComponent.h/.cpp      File player + transport + embedded plugin editor
 
+tests/
+  test_TapeStopEngine.cpp   Catch2 unit tests for the DSP
+  test_render.cpp           End-to-end render characterization tests
+
 Assets/icon.png             1024×1024 source icon (squircle, cream + red)
 tools/make_icon.py          Regenerates Assets/icon.png from scratch
-CMakeLists.txt              Two-target build, JUCE pulled via FetchContent
+CMakeLists.txt              Three targets (plugin, host app, tests); JUCE + Catch2 via FetchContent
 ```
 
 ### How the DSP works
@@ -115,6 +119,28 @@ The first configure downloads JUCE (~100 MB) and takes a few minutes. Subsequent
 - `build/DownslopeHost_artefacts/Release/Downslope Host.app` — the file-playing host
 
 `COPY_PLUGIN_AFTER_BUILD` automatically installs the AU and VST3 to `~/Library/Audio/Plug-Ins/{Components,VST3}` on every build.
+
+### Tests
+
+The repo ships with a small Catch2 test suite covering the DSP engine. Two layers:
+
+- **Layer 1 — unit tests** (`tests/test_TapeStopEngine.cpp`): curve shapes (endpoints, midpoints, monotonicity, clamping); state-machine transitions (Idle → Stopping → Holding/Returning/Settling → Idle); click safety at trigger onset (regression test for the cubic-interp lookahead fix); NaN/Inf input never propagates; output stays bounded across a full envelope; defensive guards survive prepare-before-process and bad sample rates.
+- **Layer 2 — render characterization** (`tests/test_render.cpp`): drives the engine end-to-end with a sine through full envelopes and asserts on per-block RMS shape — `floor=0` reaches silence in Holding; the return ramp brings amplitude back up; `mix=0` is near-dry passthrough; different stop curves produce distinct envelope shapes.
+
+Build & run:
+
+```sh
+cmake --build build --config Release --target DownslopeTests
+ctest --test-dir build -C Release --output-on-failure
+```
+
+Expected: `17/17 tests pass` in well under a second. To disable the test target entirely (skips downloading Catch2), pass `-DDOWNSLOPE_BUILD_TESTS=OFF` to `cmake -B build`.
+
+A note on macOS: the build automatically ad-hoc-codesigns the test executable in a CMake post-build step. macOS Sequoia kills unsigned local binaries with `SIGKILL`, which would otherwise break `catch_discover_tests` during the post-build enumeration phase.
+
+#### Test bugs vs engine bugs
+
+If a render-characterization test fails, suspect the test before the engine: the asymptotic mix smoother and the DC blocker mean that "exact" assertions usually need generous tolerances. Two of the four render tests needed their thresholds relaxed on first run for exactly this reason.
 
 ### Regenerating the icon
 

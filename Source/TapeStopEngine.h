@@ -32,6 +32,13 @@ public:
                        int numChannels,
                        int numSamples);
 
+    // --- Test accessors -----------------------------------------------------
+    // Exposed so tests can assert state-machine behaviour without poking at
+    // internal members. applyCurve is stateless — promoted to public static
+    // so unit tests can exercise the curve shapes directly.
+    State getState() const { return state; }
+    static float applyCurve (float x, Curve c);
+
 private:
     // Shared constants — keep all "magic numbers" gathered here.
     static constexpr double settleCrossfadeSeconds = 0.03;  // 30 ms blend back to dry on release
@@ -41,7 +48,6 @@ private:
     static constexpr float  smoothingTimeMs        = 20.0f; // one-pole smoother on mix/floor
     static constexpr float  ringBufferSeconds      = 10.0f;
 
-    float applyCurve (float x, Curve c) const;
     float interpolateRead (int channel, double pos) const;
     void  enterSettling();
 
