@@ -5,7 +5,8 @@
 
 class MainComponent : public juce::AudioAppComponent,
                       public juce::ChangeListener,
-                      private juce::Timer
+                      private juce::Timer,
+                      private juce::ValueTree::Listener
 {
 public:
     MainComponent();
@@ -26,6 +27,9 @@ private:
     void loadFile (const juce::File&);
     void togglePlay();
     void updateTransportText();
+    void updateFileStatusText();
+
+    juce::File loadedFile;
 
     // file playback
     juce::AudioFormatManager                       formatManager;
@@ -52,6 +56,22 @@ private:
     juce::Label         transportLbl;
 
     std::unique_ptr<juce::FileChooser> chooser;
+
+    juce::ApplicationProperties appProperties;
+    bool paramsDirty = false;
+
+    void saveAll();
+    void savePluginState();
+    void saveAudioDeviceState();
+    void rememberFile (const juce::File&);
+    juce::File recallLastFile();
+
+    // ValueTree::Listener — used to know when plugin params change so we can persist them.
+    void valueTreePropertyChanged   (juce::ValueTree&, const juce::Identifier&) override { paramsDirty = true; }
+    void valueTreeChildAdded        (juce::ValueTree&, juce::ValueTree&) override        { paramsDirty = true; }
+    void valueTreeChildRemoved      (juce::ValueTree&, juce::ValueTree&, int) override   { paramsDirty = true; }
+    void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override                {}
+    void valueTreeParentChanged     (juce::ValueTree&) override                          {}
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
 };

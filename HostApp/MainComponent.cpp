@@ -5,6 +5,15 @@ MainComponent::MainComponent()
     formatManager.registerBasicFormats();
     readerThread.startThread();
 
+    {
+        juce::PropertiesFile::Options o;
+        o.applicationName     = "DownslopeHost";
+        o.filenameSuffix      = ".settings";
+        o.folderName          = "Mine/DownslopeHost";
+        o.osxLibrarySubFolder = "Application Support";
+        appProperties.setStorageParameters (o);
+    }
+
     // --- UI -----------------------------------------------------------------
     openBtn.onClick = [this] { openFile(); };
     addAndMakeVisible (openBtn);
@@ -14,11 +23,21 @@ MainComponent::MainComponent()
     addAndMakeVisible (playBtn);
 
     loopBtn.setClickingTogglesState (true);
-    loopBtn.setToggleState (true, juce::dontSendNotification);
+    {
+        const bool initialLoop = appProperties.getUserSettings() != nullptr
+            ? appProperties.getUserSettings()->getBoolValue ("loop", true)
+            : true;
+        loopBtn.setToggleState (initialLoop, juce::dontSendNotification);
+    }
     loopBtn.onClick = [this]
     {
         if (readerSource != nullptr)
             readerSource->setLooping (loopBtn.getToggleState());
+        if (auto* p = appProperties.getUserSettings())
+        {
+            p->setValue ("loop", loopBtn.getToggleState());
+            p->saveIfNeeded();
+        }
     };
     addAndMakeVisible (loopBtn);
 
@@ -55,13 +74,31 @@ MainComponent::MainComponent()
 
     // --- Plugin -------------------------------------------------------------
     downslope = std::make_unique<DownslopeAudioProcessor>();
+
+    // Restore plugin params BEFORE creating the editor so the UI reflects them.
+    if (auto* p = appProperties.getUserSettings())
+    {
+        if (auto xml = p->getXmlValue ("pluginState"))
+            if (xml->hasTagName (downslope->apvts.state.getType()))
+                downslope->apvts.replaceState (juce::ValueTree::fromXml (*xml));
+    }
+
+    downslope->apvts.state.addListener (this);
+
     editor.reset (downslope->createEditor());
     if (editor != nullptr)
         addAndMakeVisible (editor.get());
 
     // --- Audio device -------------------------------------------------------
-    // 0 input channels, 2 output channels — system default device.
-    setAudioChannels (0, 2);
+    // Restore the saved device selection / sample rate / buffer size, if any.
+    std::unique_ptr<juce::XmlElement> audioState;
+    if (auto* p = appProperties.getUserSettings())
+        audioState = p->getXmlValue ("audioDeviceState");
+
+    // 0 input channels, 2 output channels.
+    setAudioChannels (0, 2, audioState.get());
+
+    deviceManager.addChangeListener (this);
 
     const int topBar = 76;
     const int eW = editor ? editor->getWidth()  : 600;
@@ -69,10 +106,21 @@ MainComponent::MainComponent()
     setSize (juce::jmax (640, eW + 40), topBar + eH + 20);
 
     startTimerHz (15);
+
+    // Restore the file from the last session, if it still exists.
+    const auto last = recallLastFile();
+    if (last != juce::File{} && last.existsAsFile())
+        loadFile (last);
 }
 
 MainComponent::~MainComponent()
 {
+    saveAll();
+
+    if (downslope != nullptr)
+        downslope->apvts.state.removeListener (this);
+    deviceManager.removeChangeListener (this);
+
     transportSource.setSource (nullptr);
     shutdownAudio();
     editor.reset();
@@ -167,11 +215,20 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* src)
 {
     if (src == &transportSource)
         playBtn.setButtonText (transportSource.isPlaying() ? "Stop" : "Play");
+    else if (src == &deviceManager)
+        saveAudioDeviceState();
 }
 
 void MainComponent::timerCallback()
 {
     updateTransportText();
+    updateFileStatusText();  // catches device sample-rate changes from the settings panel
+
+    if (paramsDirty)
+    {
+        savePluginState();
+        paramsDirty = false;
+    }
 }
 
 void MainComponent::updateTransportText()
@@ -239,13 +296,107 @@ void MainComponent::loadFile (const juce::File& file)
 
     readerSource    = std::move (rs);
     bufferingSource = std::move (bs);
+    loadedFile      = file;
+    rememberFile (file);
 
-    fileNameLbl.setText (file.getFileName()
-                         + juce::String::formatted ("  [%d ch, %.0f Hz]",
-                                                    fileChannels, fileSampleRate),
-                         juce::dontSendNotification);
+    updateFileStatusText();
     playBtn.setEnabled (true);
     transportSource.setPosition (0);
+}
+
+void MainComponent::rememberFile (const juce::File& f)
+{
+    if (auto* p = appProperties.getUserSettings())
+    {
+        p->setValue ("lastFile", f.getFullPathName());
+        p->saveIfNeeded();
+    }
+}
+
+void MainComponent::savePluginState()
+{
+    auto* p = appProperties.getUserSettings();
+    if (p == nullptr || downslope == nullptr) return;
+
+    auto state = downslope->apvts.copyState();
+    if (auto xml = state.createXml())
+    {
+        p->setValue ("pluginState", xml.get());
+        p->saveIfNeeded();
+    }
+}
+
+void MainComponent::saveAudioDeviceState()
+{
+    auto* p = appProperties.getUserSettings();
+    if (p == nullptr) return;
+
+    if (auto xml = deviceManager.createStateXml())
+    {
+        p->setValue ("audioDeviceState", xml.get());
+        p->saveIfNeeded();
+    }
+}
+
+void MainComponent::saveAll()
+{
+    auto* p = appProperties.getUserSettings();
+    if (p == nullptr) return;
+
+    if (loadedFile != juce::File{})
+        p->setValue ("lastFile", loadedFile.getFullPathName());
+    p->setValue ("loop", loopBtn.getToggleState());
+    if (auto audioXml = deviceManager.createStateXml())
+        p->setValue ("audioDeviceState", audioXml.get());
+    if (downslope != nullptr)
+    {
+        auto state = downslope->apvts.copyState();
+        if (auto xml = state.createXml())
+            p->setValue ("pluginState", xml.get());
+    }
+    p->saveIfNeeded();
+}
+
+juce::File MainComponent::recallLastFile()
+{
+    if (auto* p = appProperties.getUserSettings())
+    {
+        const auto path = p->getValue ("lastFile");
+        if (path.isNotEmpty())
+            return juce::File (path);
+    }
+    return {};
+}
+
+void MainComponent::updateFileStatusText()
+{
+    if (loadedFile == juce::File{})
+    {
+        fileNameLbl.setText ("(no file loaded)", juce::dontSendNotification);
+        return;
+    }
+
+    double deviceRate = 0.0;
+    if (auto* dev = deviceManager.getCurrentAudioDevice())
+        deviceRate = dev->getCurrentSampleRate();
+
+    constexpr auto bullet = u8"  ·  ";   // middle dot
+    constexpr auto arrow  = u8"  →  ";   // right arrow
+
+    juce::String s = loadedFile.getFileName()
+        + juce::String (reinterpret_cast<const char*> (bullet))
+        + juce::String (fileChannels) + " ch"
+        + juce::String (reinterpret_cast<const char*> (bullet))
+        + juce::String::formatted ("%.0f Hz", fileSampleRate);
+
+    if (deviceRate > 0.0 && std::abs (deviceRate - fileSampleRate) > 0.5)
+        s += juce::String (reinterpret_cast<const char*> (arrow))
+           + juce::String::formatted ("%.0f Hz (resampling)", deviceRate);
+    else if (deviceRate > 0.0)
+        s += juce::String (reinterpret_cast<const char*> (arrow))
+           + juce::String::formatted ("%.0f Hz", deviceRate);
+
+    fileNameLbl.setText (s, juce::dontSendNotification);
 }
 
 void MainComponent::togglePlay()

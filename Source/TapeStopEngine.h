@@ -22,6 +22,7 @@ public:
     void setTriggerMode       (TriggerMode m) { triggerMode = m; }
     void setReturnEnabled     (bool e)  { returnEnabled = e; }
     void setToneRolloff       (bool e)  { toneRolloff   = e; }
+    void setToneAmount        (float a) { toneAmount    = a; }   // 0..1; 0.5 = current behaviour
     void setMix               (float m) { mix           = m; }
 
     void setTrigger (bool t) { triggerHigh = t; }
@@ -32,8 +33,17 @@ public:
                        int numSamples);
 
 private:
+    // Shared constants — keep all "magic numbers" gathered here.
+    static constexpr double settleCrossfadeSeconds = 0.03;  // 30 ms blend back to dry on release
+    static constexpr float  ampFadeThreshold       = 0.15f; // amp fades to 0 over the last 15% of slowdown
+    static constexpr int    interpLatencySamples   = 4;     // read head sits this many samples behind the write head at trigger
+    static constexpr float  dcBlockerCornerHz      = 5.0f;
+    static constexpr float  smoothingTimeMs        = 20.0f; // one-pole smoother on mix/floor
+    static constexpr float  ringBufferSeconds      = 10.0f;
+
     float applyCurve (float x, Curve c) const;
     float interpolateRead (int channel, double pos) const;
+    void  enterSettling();
 
     double fs = 44100.0;
     int    nCh = 2;
@@ -76,5 +86,6 @@ private:
     TriggerMode triggerMode = TriggerMode::Momentary;
     bool  returnEnabled = true;
     bool  toneRolloff   = true;
+    float toneAmount    = 0.5f;
     float mix           = 1.0f;
 };

@@ -15,9 +15,9 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(JUCE)
 
 juce_add_plugin(Downslope
-    COMPANY_NAME "Tom"
-    BUNDLE_ID com.tom.downslope
-    PLUGIN_MANUFACTURER_CODE Tomm
+    COMPANY_NAME "Mine"
+    BUNDLE_ID com.mine.downslope
+    PLUGIN_MANUFACTURER_CODE Mine
     PLUGIN_CODE Dnsl
     FORMATS AU VST3 Standalone
     PRODUCT_NAME "Downslope"
@@ -27,6 +27,8 @@ juce_add_plugin(Downslope
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     COPY_PLUGIN_AFTER_BUILD TRUE
+    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/Assets/icon.png"
+    ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/Assets/icon.png"
 )
 
 juce_generate_juce_header(Downslope)
@@ -62,8 +64,10 @@ target_link_libraries(Downslope PRIVATE
 
 juce_add_gui_app(DownslopeHost
     PRODUCT_NAME "Downslope Host"
-    COMPANY_NAME "Tom"
-    BUNDLE_ID com.tom.downslopehost
+    COMPANY_NAME "Mine"
+    BUNDLE_ID com.mine.downslopehost
+    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/Assets/icon.png"
+    ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/Assets/icon.png"
 )
 
 juce_generate_juce_header(DownslopeHost)

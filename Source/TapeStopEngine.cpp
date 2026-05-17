@@ -5,26 +5,35 @@
 
 void TapeStopEngine::prepare (double sampleRate, int /*maxBlockSize*/, int numChannels)
 {
+    // Defensive: ignore garbage from the host (eg. a 0/negative SR during shutdown).
+    if (sampleRate <= 0.0 || numChannels <= 0) return;
+
     fs  = sampleRate;
     nCh = std::max (1, numChannels);
 
-    // 10 seconds of buffer comfortably covers any stop time we expose.
-    ringSize = static_cast<int> (std::ceil (sampleRate * 10.0));
+    ringSize = static_cast<int> (std::ceil (sampleRate * ringBufferSeconds));
     ring.assign (static_cast<size_t> (nCh),
                  std::vector<float> (static_cast<size_t> (ringSize), 0.0f));
     lpZ.assign  (static_cast<size_t> (nCh), 0.0f);
     dcX1.assign (static_cast<size_t> (nCh), 0.0f);
     dcY1.assign (static_cast<size_t> (nCh), 0.0f);
 
-    // DC blocker pole: fc ~ 5 Hz
-    dcR = 1.0f - static_cast<float> (2.0 * 3.14159265358979 * 5.0 / sampleRate);
+    // DC blocker pole — single-pole HP at dcBlockerCornerHz.
+    dcR = 1.0f - static_cast<float> (2.0 * M_PI * dcBlockerCornerHz / sampleRate);
 
-    mixSm.prepare   (sampleRate, 20.0f);
-    floorSm.prepare (sampleRate, 20.0f);
+    mixSm.prepare   (sampleRate, smoothingTimeMs);
+    floorSm.prepare (sampleRate, smoothingTimeMs);
     mixSm.snap   (mix);
     floorSm.snap (floorPitch);
 
     reset();
+}
+
+void TapeStopEngine::enterSettling()
+{
+    state         = State::Settling;
+    settleSamples = std::max (1.0, fs * settleCrossfadeSeconds);
+    settleCounter = 0.0;
 }
 
 void TapeStopEngine::reset()
@@ -86,7 +95,19 @@ void TapeStopEngine::processBlock (const float* const* inputs,
                                    int numChannels,
                                    int numSamples)
 {
-    const int channels = std::min (numChannels, nCh);
+    // Hard guard against host calling us before prepare() or after release.
+    // Without this, the ring/lpZ/dc vectors are empty and any index would
+    // walk off the end and corrupt the heap — a common cause of host crashes
+    // that appear *outside* the plugin's own stack frames.
+    if (ringSize <= 0 || ring.empty() || numSamples <= 0)
+    {
+        for (int ch = 0; ch < numChannels; ++ch)
+            if (outputs[ch] != nullptr)
+                std::fill_n (outputs[ch], numSamples, 0.0f);
+        return;
+    }
+
+    const int channels = std::min ({ numChannels, nCh, (int) ring.size() });
 
     const bool rising  =  triggerHigh && ! prevTrigger;
     const bool falling = ! triggerHigh &&   prevTrigger;
@@ -95,30 +116,29 @@ void TapeStopEngine::processBlock (const float* const* inputs,
     // Edge-driven state transitions
     if (rising && state == State::Idle)
     {
-        state   = State::Stopping;
-        phase   = 0.0;
-        readPos = static_cast<double> (writeIdx);
+        state = State::Stopping;
+        phase = 0.0;
+        // Start a few samples *behind* the write head so the cubic interp's
+        // forward look-ahead (i+1, i+2) lands on valid recently-written
+        // samples instead of stale wrap-around data — inaudible, but
+        // eliminates the click at trigger onset.
+        const int rp = (writeIdx - interpLatencySamples + ringSize) % ringSize;
+        readPos = static_cast<double> (rp);
     }
 
     if (falling && triggerMode == TriggerMode::Momentary
         && (state == State::Stopping || state == State::Holding))
     {
-        if (returnEnabled)
-        {
-            state = State::Returning;
-            phase = 0.0;
-        }
-        else
-        {
-            state         = State::Settling;
-            settleSamples = std::max (1.0, fs * 0.03);
-            settleCounter = 0.0;
-        }
+        if (returnEnabled) { state = State::Returning; phase = 0.0; }
+        else                 enterSettling();
     }
 
     const double stopSamples   = std::max (1.0, static_cast<double> (stopTimeSec)   * fs);
     const double returnSamples = std::max (1.0, static_cast<double> (returnTimeSec) * fs);
-    constexpr float ampFadeThreshold = 0.15f;
+
+    // Hoisted out of the per-sample loop — depends only on the (block-rate) toneAmount.
+    const float toneExponent = std::exp2 (1.0f - toneAmount * 2.0f);
+    const bool  toneIsUnity  = std::abs (toneExponent - 1.0f) < 0.005f;
 
     for (int n = 0; n < numSamples; ++n)
     {
@@ -126,9 +146,14 @@ void TapeStopEngine::processBlock (const float* const* inputs,
         const float floorNow = floorSm.next (floorPitch);
         const float mixNow   = mixSm.next   (mix);
 
-        // Always feed the ring with the live input
+        // Always feed the ring with the live input (guard against non-finite
+        // samples from the host — keeps the ring sane during host shutdown).
         for (int ch = 0; ch < channels; ++ch)
-            ring[static_cast<size_t> (ch)][static_cast<size_t> (writeIdx)] = inputs[ch][n];
+        {
+            const float in = inputs[ch][n];
+            ring[static_cast<size_t> (ch)][static_cast<size_t> (writeIdx)]
+                = std::isfinite (in) ? in : 0.0f;
+        }
 
         float rate = 1.0f;
 
@@ -145,19 +170,9 @@ void TapeStopEngine::processBlock (const float* const* inputs,
                 {
                     p = 1.0f;
                     if (triggerMode == TriggerMode::Momentary && triggerHigh)
-                    {
                         state = State::Holding;
-                    }
-                    else
-                    {
-                        if (returnEnabled) { state = State::Returning; phase = 0.0; }
-                        else
-                        {
-                            state         = State::Settling;
-                            settleSamples = std::max (1.0, fs * 0.03);
-                            settleCounter = 0.0;
-                        }
-                    }
+                    else if (returnEnabled) { state = State::Returning; phase = 0.0; }
+                    else                      enterSettling();
                 }
                 const float shaped = applyCurve (p, stopCurve);
                 rate = 1.0f - shaped * (1.0f - floorNow);
@@ -175,9 +190,7 @@ void TapeStopEngine::processBlock (const float* const* inputs,
                 if (p >= 1.0f)
                 {
                     p = 1.0f;
-                    state         = State::Settling;
-                    settleSamples = std::max (1.0, fs * 0.03);
-                    settleCounter = 0.0;
+                    enterSettling();
                 }
                 const float shaped = applyCurve (p, returnCurve);
                 rate = floorNow + shaped * (1.0f - floorNow);
@@ -200,8 +213,13 @@ void TapeStopEngine::processBlock (const float* const* inputs,
         else
             readPos = static_cast<double> (writeIdx);
 
-        // Tone rolloff coefficient — onepole low-pass that closes as rate drops.
-        const float tCoeff = toneRolloff ? std::max (0.02f, rate) : 1.0f;
+        // Tone rolloff coefficient — onepole LP that closes as rate drops. The
+        // amount knob shapes the curve via an exponent on `rate` (computed
+        // once per block; near-unity case short-circuits the std::pow).
+        float tCoeff;
+        if (! toneRolloff)               tCoeff = 1.0f;
+        else if (toneIsUnity)            tCoeff = std::max (0.02f, rate);
+        else                             tCoeff = std::max (0.02f, std::pow (std::max (0.0001f, rate), toneExponent));
 
         for (int ch = 0; ch < channels; ++ch)
         {
