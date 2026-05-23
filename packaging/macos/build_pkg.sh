@@ -24,6 +24,9 @@ trap 'rm -rf "$STAGE"' EXIT
 VERSION="$(sed -n 's/.*project(Downslope VERSION \([0-9.]*\).*/\1/p' "${ROOT}/CMakeLists.txt")"
 VERSION="${VERSION:-0.0.0}"
 
+AU_ID="com.x09music.downslope.au"
+VST3_ID="com.x09music.downslope.vst3"
+
 AU_SRC="${ARTEFACTS}/AU/Downslope.component"
 VST3_SRC="${ARTEFACTS}/VST3/Downslope.vst3"
 
@@ -47,13 +50,13 @@ PKG_DIR="${STAGE}/pkgs"
 mkdir -p "$PKG_DIR"
 
 pkgbuild --root "$AU_ROOT" \
-  --identifier com.mine.downslope.au \
+  --identifier "$AU_ID" \
   --version "$VERSION" \
   --install-location / \
   "${PKG_DIR}/Downslope-AU.pkg"
 
 pkgbuild --root "$VST3_ROOT" \
-  --identifier com.mine.downslope.vst3 \
+  --identifier "$VST3_ID" \
   --version "$VERSION" \
   --install-location / \
   "${PKG_DIR}/Downslope-VST3.pkg"
@@ -69,13 +72,13 @@ cat > "$DIST" <<EOF
         <line choice="vst3"/>
     </choices-outline>
     <choice id="au" title="Audio Unit (AU)" description="Installs to /Library/Audio/Plug-Ins/Components">
-        <pkg-ref id="com.mine.downslope.au"/>
+        <pkg-ref id="${AU_ID}"/>
     </choice>
     <choice id="vst3" title="VST3" description="Installs to /Library/Audio/Plug-Ins/VST3">
-        <pkg-ref id="com.mine.downslope.vst3"/>
+        <pkg-ref id="${VST3_ID}"/>
     </choice>
-    <pkg-ref id="com.mine.downslope.au" version="${VERSION}">Downslope-AU.pkg</pkg-ref>
-    <pkg-ref id="com.mine.downslope.vst3" version="${VERSION}">Downslope-VST3.pkg</pkg-ref>
+    <pkg-ref id="${AU_ID}" version="${VERSION}">Downslope-AU.pkg</pkg-ref>
+    <pkg-ref id="${VST3_ID}" version="${VERSION}">Downslope-VST3.pkg</pkg-ref>
 </installer-gui-script>
 EOF
 

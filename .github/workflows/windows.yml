@@ -32,12 +32,10 @@ jobs:
       - name: Build VST3 (Release)
         run: cmake --build build --config Release --target Downslope_VST3
 
-      - name: Install Inno Setup
-        run: choco install innosetup --no-progress -y
-
       - name: Build installer
         shell: pwsh
         run: |
+          # Inno Setup 6 is preinstalled on the windows-latest runner image.
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
             "/DMyAppVersion=${{ steps.ver.outputs.version }}" `
             packaging\windows\downslope.iss

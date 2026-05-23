@@ -47,6 +47,7 @@ private:
     static constexpr float  dcBlockerCornerHz      = 5.0f;
     static constexpr float  smoothingTimeMs        = 20.0f; // one-pole smoother on mix/floor
     static constexpr float  ringBufferSeconds      = 10.0f;
+    static constexpr double pi                     = 3.14159265358979323846; // M_PI is non-standard / undefined under MSVC
 
     float interpolateRead (int channel, double pos) const;
     void  enterSettling();

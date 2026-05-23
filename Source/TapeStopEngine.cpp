@@ -19,7 +19,7 @@ void TapeStopEngine::prepare (double sampleRate, int /*maxBlockSize*/, int numCh
     dcY1.assign (static_cast<size_t> (nCh), 0.0f);
 
     // DC blocker pole — single-pole HP at dcBlockerCornerHz.
-    dcR = 1.0f - static_cast<float> (2.0 * M_PI * dcBlockerCornerHz / sampleRate);
+    dcR = 1.0f - static_cast<float> (2.0 * pi * dcBlockerCornerHz / sampleRate);
 
     mixSm.prepare   (sampleRate, smoothingTimeMs);
     floorSm.prepare (sampleRate, smoothingTimeMs);
