@@ -11,3 +11,7 @@ CMakeFiles/
 cmake_install.cmake
 Makefile
 JuceLibraryCode/
+
+# Built installers
+packaging/windows/Downslope-*.exe
+packaging/macos/Downslope-*.pkg

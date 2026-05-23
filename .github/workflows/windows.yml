@@ -1,0 +1,50 @@
+name: Windows Build
+
+# Manual-only: run from the Actions tab → "Windows Build" → "Run workflow".
+# Keeps CI minute usage near zero (no build on push). Windows-only — macOS
+# plugins are built locally on a Mac.
+on:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read version from CMakeLists
+        id: ver
+        shell: pwsh
+        run: |
+          $content = Get-Content CMakeLists.txt -Raw
+          if ($content -match 'project\(Downslope VERSION ([0-9]+\.[0-9]+\.[0-9]+)') {
+            $v = $Matches[1]
+          } else {
+            $v = "0.0.0"
+          }
+          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Resolved version: $v"
+
+      - name: Configure (MSVC)
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64 -DDOWNSLOPE_BUILD_TESTS=OFF
+
+      - name: Build VST3 (Release)
+        run: cmake --build build --config Release --target Downslope_VST3
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
+            "/DMyAppVersion=${{ steps.ver.outputs.version }}" `
+            packaging\windows\downslope.iss
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Downslope-${{ steps.ver.outputs.version }}-Windows-installer
+          path: packaging/windows/Downslope-*.exe
+          if-no-files-found: error

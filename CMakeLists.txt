@@ -15,9 +15,9 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(JUCE)
 
 juce_add_plugin(Downslope
-    COMPANY_NAME "Mine"
-    BUNDLE_ID com.mine.downslope
-    PLUGIN_MANUFACTURER_CODE Mine
+    COMPANY_NAME "x09Music"
+    BUNDLE_ID com.x09music.downslope
+    PLUGIN_MANUFACTURER_CODE X09M
     PLUGIN_CODE Dnsl
     FORMATS AU VST3 Standalone
     PRODUCT_NAME "Downslope"
@@ -64,8 +64,8 @@ target_link_libraries(Downslope PRIVATE
 
 juce_add_gui_app(DownslopeHost
     PRODUCT_NAME "Downslope Host"
-    COMPANY_NAME "Mine"
-    BUNDLE_ID com.mine.downslopehost
+    COMPANY_NAME "x09Music"
+    BUNDLE_ID com.x09music.downslopehost
     ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/Assets/icon.png"
     ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/Assets/icon.png"
 )
