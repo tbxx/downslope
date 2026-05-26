@@ -59,6 +59,57 @@ Both are user-selectable components in the installer UI. Installing to system
 
 ---
 
+## Hosting downloads on S3 (public links)
+
+One-time setup, then `publish_s3.sh` for each release. Replace `x09music-downloads`
+with your globally-unique bucket name and pick a region (e.g. `us-east-1`).
+
+**1. Install + configure the AWS CLI** (needs an IAM user access key with S3 write):
+```sh
+brew install awscli
+aws configure   # enter access key, secret, default region
+```
+
+**2. Create the bucket and make objects publicly readable** (one time):
+```sh
+BUCKET=x09music-downloads
+REGION=us-east-1
+
+# create (us-east-1 takes no LocationConstraint; other regions do)
+aws s3api create-bucket --bucket "$BUCKET" --region "$REGION"
+
+# allow a public-read bucket policy (S3 blocks this by default)
+aws s3api put-public-access-block --bucket "$BUCKET" \
+  --public-access-block-configuration BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false
+
+# grant anonymous read on all objects
+aws s3api put-bucket-policy --bucket "$BUCKET" --policy '{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Sid": "PublicRead",
+    "Effect": "Allow",
+    "Principal": "*",
+    "Action": "s3:GetObject",
+    "Resource": "arn:aws:s3:::x09music-downloads/*"
+  }]
+}'
+```
+ACLs are disabled on new buckets (bucket-owner-enforced), so the **bucket policy** —
+not per-object ACLs — is what makes downloads public.
+
+**3. Publish a release:**
+```sh
+S3_BUCKET=x09music-downloads packaging/publish_s3.sh
+```
+It uploads the built `.pkg` and `.exe` and prints the shareable URLs, e.g.
+`https://x09music-downloads.s3.us-east-1.amazonaws.com/Downslope-0.1.0-macOS.pkg`.
+(Build the macOS `.pkg` locally and drop the CI `.exe` into `packaging/windows/` first.)
+
+> **Heads-up on unsigned + downloaded:** a `.pkg`/`.exe` fetched from the web gets
+> a quarantine flag, so Gatekeeper/SmartScreen warnings are *stricter* than for a
+> locally-built file — macOS users right-click → Open; Windows users click
+> "More info → Run anyway". Code signing (below) removes this.
+
 ## Adding signing later
 
 The scripts are structured so signing is an additive change, not a rewrite:
