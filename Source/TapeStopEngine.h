@@ -43,6 +43,8 @@ private:
     // Shared constants — keep all "magic numbers" gathered here.
     static constexpr double settleCrossfadeSeconds = 0.03;  // 30 ms blend back to dry on release
     static constexpr float  ampFadeThreshold       = 0.15f; // amp fades to 0 over the last 15% of slowdown
+    static constexpr float  toneMaxCutoffHz        = 20000.0f; // tone LP cutoff at full speed (effectively open)
+    static constexpr float  toneMinCutoffHz        = 120.0f;   // tone LP cutoff floor at the slowest rate
     static constexpr int    interpLatencySamples   = 4;     // read head sits this many samples behind the write head at trigger
     static constexpr float  dcBlockerCornerHz      = 5.0f;
     static constexpr float  smoothingTimeMs        = 20.0f; // one-pole smoother on mix/floor

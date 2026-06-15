@@ -136,9 +136,14 @@ void TapeStopEngine::processBlock (const float* const* inputs,
     const double stopSamples   = std::max (1.0, static_cast<double> (stopTimeSec)   * fs);
     const double returnSamples = std::max (1.0, static_cast<double> (returnTimeSec) * fs);
 
-    // Hoisted out of the per-sample loop — depends only on the (block-rate) toneAmount.
-    const float toneExponent = std::exp2 (1.0f - toneAmount * 2.0f);
-    const bool  toneIsUnity  = std::abs (toneExponent - 1.0f) < 0.005f;
+    // Tone rolloff shaping — hoisted, depends only on the (block-rate) toneAmount.
+    // The amount knob sets how steeply the cutoff collapses as the rate falls
+    // (exponent on `rate`): 1 = gentle, 6 = steep, default 0.5 -> 3.5. Cutoff is
+    // clamped below Nyquist so the one-pole coefficient stays well-behaved at any
+    // sample rate.
+    const float toneExp    = 1.0f + toneAmount * 5.0f;
+    const float toneMaxCut = std::min (toneMaxCutoffHz, 0.45f * static_cast<float> (fs));
+    const float twoPiOverFs = static_cast<float> (2.0 * pi / fs);
 
     for (int n = 0; n < numSamples; ++n)
     {
@@ -213,13 +218,20 @@ void TapeStopEngine::processBlock (const float* const* inputs,
         else
             readPos = static_cast<double> (writeIdx);
 
-        // Tone rolloff coefficient — onepole LP that closes as rate drops. The
-        // amount knob shapes the curve via an exponent on `rate` (computed
-        // once per block; near-unity case short-circuits the std::pow).
+        // Tone rolloff coefficient — onepole LP whose cutoff follows the playback
+        // rate, emulating a tape losing high end as it slows. At full speed the
+        // cutoff is open; as `rate` falls the cutoff collapses toward
+        // toneMinCutoffHz, so the darkening is clearly audible well before the
+        // rate drops into the amp-fade region near the floor.
         float tCoeff;
-        if (! toneRolloff)               tCoeff = 1.0f;
-        else if (toneIsUnity)            tCoeff = std::max (0.02f, rate);
-        else                             tCoeff = std::max (0.02f, std::pow (std::max (0.0001f, rate), toneExponent));
+        if (! toneRolloff)
+            tCoeff = 1.0f;
+        else
+        {
+            const float cut = std::clamp (toneMaxCut * std::pow (std::max (0.0001f, rate), toneExp),
+                                          toneMinCutoffHz, toneMaxCut);
+            tCoeff = 1.0f - std::exp (-twoPiOverFs * cut);
+        }
 
         for (int ch = 0; ch < channels; ++ch)
         {
