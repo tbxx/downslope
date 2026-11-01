@@ -4,6 +4,8 @@ A tape-stop audio effect for macOS, built with JUCE. Ships as an Audio Unit, VST
 
 Triggers can be drawn into Ableton's automation lane (or any DAW), MIDI-mapped to a controller, or pressed directly. The slowdown shape, length, floor pitch and tone behaviour are all parametric, and the stop time can be either free milliseconds or synced to host tempo (including triplets).
 
+![Downslope plugin UI](Assets/screenshots/plugin-ui.png)
+
 ---
 
 ## What it does
